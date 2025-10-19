@@ -14,7 +14,7 @@ export default function Home() {
   const [predictions, setPredictions] = useState<DetectedObject[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>("");
-  const animationFrameRef = useRef<number | undefined>(undefined);
+  const detectingRef = useRef(false);
 
   // 加载模型
   useEffect(() => {
@@ -37,14 +37,24 @@ export default function Home() {
     try {
       setError("");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+        video: { facingMode: "user", width: 640, height: 480 },
         audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // 等待视频加载
+        await new Promise<void>((resolve) => {
+          if (videoRef.current) {
+            videoRef.current.onloadedmetadata = () => {
+              resolve();
+            };
+          }
+        });
       }
+      return true;
     } catch (err) {
       setError("无法访问摄像头，请确保已授予权限");
+      return false;
     }
   };
 
@@ -55,9 +65,7 @@ export default function Home() {
       stream.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    detectingRef.current = false;
     setIsDetecting(false);
     setPredictions([]);
     // 清空画布
@@ -69,29 +77,25 @@ export default function Home() {
     }
   };
 
-  // 开始检测
-  const startDetection = async () => {
-    if (!model || !videoRef.current) return;
+  // 检测循环
+  const detectLoop = async () => {
+    if (!detectingRef.current || !model || !videoRef.current || !canvasRef.current) {
+      return;
+    }
 
-    await startCamera();
-    setIsDetecting(true);
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
 
-    const detect = async () => {
-      if (
-        videoRef.current &&
-        videoRef.current.readyState === 4 &&
-        canvasRef.current &&
-        model
-      ) {
-        // 设置画布尺寸
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    // 确保视频已准备好
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      // 设置画布尺寸
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
+      try {
         // 进行检测
-        const predictions = await model.detect(video);
-        setPredictions(predictions);
+        const detections = await model.detect(video);
+        setPredictions(detections);
 
         // 绘制检测框
         const ctx = canvas.getContext("2d");
@@ -100,32 +104,52 @@ export default function Home() {
           ctx.font = "18px Arial";
           ctx.lineWidth = 3;
 
-          predictions.forEach((prediction) => {
-            const [x, y, width, height] = prediction.bbox;
+          detections.forEach((detection) => {
+            const [x, y, width, height] = detection.bbox;
             
             // 绘制边框
             ctx.strokeStyle = "#00ff00";
             ctx.strokeRect(x, y, width, height);
 
             // 绘制标签背景
-            const text = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+            const text = `${detection.class} ${Math.round(detection.score * 100)}%`;
             const textWidth = ctx.measureText(text).width;
             ctx.fillStyle = "#00ff00";
-            ctx.fillRect(x, y - 25, textWidth + 10, 25);
+            ctx.fillRect(x, y > 25 ? y - 25 : y, textWidth + 10, 25);
 
             // 绘制标签文字
             ctx.fillStyle = "#000000";
-            ctx.fillText(text, x + 5, y - 7);
+            ctx.fillText(text, x + 5, y > 25 ? y - 7 : y + 18);
           });
         }
+      } catch (err) {
+        console.error("检测错误:", err);
       }
+    }
 
-      if (isDetecting) {
-        animationFrameRef.current = requestAnimationFrame(detect);
-      }
-    };
+    // 继续下一帧检测
+    if (detectingRef.current) {
+      requestAnimationFrame(detectLoop);
+    }
+  };
 
-    detect();
+  // 开始检测
+  const startDetection = async () => {
+    if (!model) {
+      setError("模型尚未加载完成");
+      return;
+    }
+
+    const cameraStarted = await startCamera();
+    if (!cameraStarted) {
+      return;
+    }
+
+    detectingRef.current = true;
+    setIsDetecting(true);
+    
+    // 启动检测循环
+    requestAnimationFrame(detectLoop);
   };
 
   // 停止检测
@@ -167,6 +191,13 @@ export default function Home() {
             {isLoading && (
               <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400">
                 正在加载模型，请稍候...
+              </div>
+            )}
+
+            {/* 模型加载成功提示 */}
+            {model && !isLoading && !isDetecting && (
+              <div className="mb-4 p-4 bg-green-500/10 border border-green-500/50 rounded-lg text-green-400">
+                模型加载成功！点击下方按钮开始检测
               </div>
             )}
 
@@ -242,8 +273,8 @@ export default function Home() {
                       className="bg-gray-700/50 border border-gray-600 rounded-lg p-4"
                     >
                       <div className="flex justify-between items-center">
-                        <span className="text-white font-medium">
-                          {prediction.class}
+                        <span className="text-white font-medium capitalize">
+                          {prediction.class === "person" ? "人" : prediction.class}
                         </span>
                         <span className="text-green-400 font-semibold">
                           {Math.round(prediction.score * 100)}%
@@ -262,6 +293,7 @@ export default function Home() {
                 <li>• 点击"开始检测"按钮启动摄像头并开始实时物体识别</li>
                 <li>• 系统会自动识别画面中的物体并用绿色框标注</li>
                 <li>• 支持识别 80 种常见物体类别（人、车、动物、家具等）</li>
+                <li>• 可以识别人脸（作为"人"类别进行检测）</li>
                 <li>• 所有处理都在浏览器本地完成，不会上传任何数据</li>
               </ul>
             </div>
