@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Admin from "./pages/Admin";
 import History from "./pages/History";
+import BackendAdmin from "./pages/BackendAdmin";
 import { useAuth } from "./_core/hooks/useAuth";
 import { Button } from "./components/ui/button";
 import { APP_TITLE, getLoginUrl } from "./const";
@@ -21,46 +22,46 @@ function Navigation() {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
             <Link href="/">
-              <a className="text-xl font-bold text-white hover:text-gray-300 transition">
+              <span className="text-xl font-bold text-white hover:text-gray-300 transition cursor-pointer">
                 {APP_TITLE}
-              </a>
+              </span>
             </Link>
             <div className="flex gap-4">
               <Link href="/">
-                <a
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                <span
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition cursor-pointer inline-block ${
                     location === "/"
                       ? "bg-gray-700 text-white"
                       : "text-gray-300 hover:bg-gray-700 hover:text-white"
                   }`}
                 >
                   物体识别
-                </a>
+                </span>
               </Link>
               {isAuthenticated && (
                 <>
                   <Link href="/history">
-                    <a
-                      className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                    <span
+                      className={`px-3 py-2 rounded-md text-sm font-medium transition cursor-pointer inline-block ${
                         location === "/history"
                           ? "bg-gray-700 text-white"
                           : "text-gray-300 hover:bg-gray-700 hover:text-white"
                       }`}
                     >
                       识别记录
-                    </a>
+                    </span>
                   </Link>
                   {user?.role === "admin" && (
                     <Link href="/admin">
-                      <a
-                        className={`px-3 py-2 rounded-md text-sm font-medium transition ${
+                      <span
+                        className={`px-3 py-2 rounded-md text-sm font-medium transition cursor-pointer inline-block ${
                           location === "/admin"
                             ? "bg-gray-700 text-white"
                             : "text-gray-300 hover:bg-gray-700 hover:text-white"
                         }`}
                       >
                         人员管理
-                      </a>
+                      </span>
                     </Link>
                   )}
                 </>
@@ -105,6 +106,7 @@ function Router() {
         <Route path={"/"} component={Home} />
         <Route path={"/admin"} component={Admin} />
         <Route path={"/history"} component={History} />
+        <Route path={"/backend"} component={BackendAdmin} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />
