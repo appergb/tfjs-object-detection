@@ -12,10 +12,10 @@ interface QuickLoginProps {
 // 默认账号配置
 const DEFAULT_ACCOUNTS = {
   admin: {
-    username: "admin",
-    password: "admin123",
+    username: "LBX",
+    password: "198305",
     role: "admin",
-    name: "管理员",
+    name: "管理员 LBX",
   },
   user: {
     username: "user",
@@ -154,7 +154,7 @@ export default function QuickLogin({ onClose }: QuickLoginProps) {
           <div className="text-gray-400 text-xs space-y-1">
             <p>
               <span className="text-blue-400">管理员：</span>
-              用户名: admin / 密码: admin123
+              用户名: LBX / 密码: 198305
             </p>
             <p>
               <span className="text-green-400">普通用户：</span>

@@ -6,8 +6,6 @@ import "@tensorflow/tfjs";
 import { toast } from "sonner";
 import { detectFaces, matchFace, extractFaceEmbedding } from "@/lib/faceRecognition";
 import { trpc } from "@/lib/trpc";
-import { getQuickLoginUser, quickLogout } from "@/components/QuickLogin";
-import QuickLogin from "@/components/QuickLogin";
 
 export default function Home() {
   const [model, setModel] = useState<cocoSsd.ObjectDetection | null>(null);
@@ -17,12 +15,11 @@ export default function Home() {
     score: number;
     bbox: number[];
   }>>([]);
-  const [recognizedPerson, setRecognizedPerson] = useState<{
+  const [faceDetections, setFaceDetections] = useState<Array<{
     name: string;
     confidence: number;
-  } | null>(null);
-  const [showLogin, setShowLogin] = useState(false);
-  const [quickUser, setQuickUser] = useState<any>(null);
+    bbox: number[];
+  }>>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -30,13 +27,8 @@ export default function Home() {
 
   const { data: persons } = trpc.persons.list.useQuery();
   const { data: stats } = trpc.stats.getOverview.useQuery();
-  const createLogMutation = trpc.detectionLogs.create.useMutation();
 
   useEffect(() => {
-    // 检查快速登录状态
-    const user = getQuickLoginUser();
-    setQuickUser(user);
-
     // 加载模型
     const loadModel = async () => {
       try {
@@ -112,17 +104,24 @@ export default function Home() {
     try {
       // 每隔几帧才进行一次检测，提高性能
       await new Promise(resolve => setTimeout(resolve, 100));
+      
       // 物体检测
       const predictions = await model.detect(videoRef.current);
       setDetections(predictions);
 
       // 人脸识别
+      const detectedFaces: Array<{
+        name: string;
+        confidence: number;
+        bbox: number[];
+      }> = [];
+
       if (persons && persons.length > 0) {
         try {
           const faces = await detectFaces(videoRef.current);
           
-          if (faces.length > 0) {
-            const embedding = await extractFaceEmbedding(faces[0]);
+          for (const face of faces) {
+            const embedding = await extractFaceEmbedding(face);
             
             if (embedding) {
               const knownFaces = persons
@@ -136,22 +135,20 @@ export default function Home() {
               const match = matchFace(embedding, knownFaces);
               
               if (match) {
-                setRecognizedPerson({
+                // 计算人脸边界框
+                const keypoints = face.keypoints;
+                const xs = keypoints.map(p => p.x);
+                const ys = keypoints.map(p => p.y);
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+                
+                detectedFaces.push({
                   name: match.name,
                   confidence: match.similarity,
+                  bbox: [minX, minY, maxX - minX, maxY - minY],
                 });
-
-                // 记录识别日志
-                if (quickUser) {
-                  createLogMutation.mutate({
-                    personId: match.id,
-                    personName: match.name,
-                    confidence: match.similarity,
-                    detectedObjects: JSON.stringify(predictions.map(p => p.class)),
-                  });
-                }
-              } else {
-                setRecognizedPerson(null);
               }
             }
           }
@@ -161,8 +158,10 @@ export default function Home() {
         }
       }
 
+      setFaceDetections(detectedFaces);
+
       // 绘制检测框
-      drawDetections(predictions);
+      drawDetections(predictions, detectedFaces);
 
       // 继续检测
       requestAnimationFrame(detectLoop);
@@ -173,11 +172,18 @@ export default function Home() {
     }
   };
 
-  const drawDetections = (predictions: Array<{
-    class: string;
-    score: number;
-    bbox: number[];
-  }>) => {
+  const drawDetections = (
+    predictions: Array<{
+      class: string;
+      score: number;
+      bbox: number[];
+    }>,
+    faces: Array<{
+      name: string;
+      confidence: number;
+      bbox: number[];
+    }>
+  ) => {
     if (!canvasRef.current || !videoRef.current) return;
 
     const canvas = canvasRef.current;
@@ -190,6 +196,7 @@ export default function Home() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // 绘制物体检测框（绿色）
     predictions.forEach((prediction) => {
       const [x, y, width, height] = prediction.bbox;
 
@@ -211,52 +218,40 @@ export default function Home() {
       ctx.font = "16px Arial";
       ctx.fillText(label, x + 5, y - 7);
     });
-  };
 
-  if (showLogin) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
-        <QuickLogin onClose={() => setShowLogin(false)} />
-      </div>
-    );
-  }
+    // 绘制人脸检测框（黄色）
+    faces.forEach((face) => {
+      const [x, y, width, height] = face.bbox;
+
+      // 绘制边界框
+      ctx.strokeStyle = "#ffff00";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+
+      // 绘制标签背景
+      ctx.fillStyle = "#ffff00";
+      const label = `${face.name} ${face.confidence.toFixed(0)}%`;
+      ctx.font = "bold 18px Arial";
+      const textWidth = ctx.measureText(label).width;
+      ctx.fillRect(x, y - 30, textWidth + 10, 30);
+
+      // 绘制标签文字
+      ctx.fillStyle = "#000000";
+      ctx.fillText(label, x + 5, y - 8);
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="container mx-auto px-4 py-6">
         {/* 顶部栏 */}
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-1">
-              实时物体与人脸识别系统
-            </h1>
-            <p className="text-gray-400 text-sm">
-              使用 TensorFlow.js 进行实时物体检测和人脸识别
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {quickUser ? (
-              <>
-                <span className="text-gray-300">
-                  欢迎，{quickUser.name}
-                </span>
-                <Button
-                  variant="outline"
-                  onClick={quickLogout}
-                  className="border-gray-600 text-gray-300"
-                >
-                  退出
-                </Button>
-              </>
-            ) : (
-              <Button
-                onClick={() => setShowLogin(true)}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                快速登录
-              </Button>
-            )}
-          </div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-white mb-1">
+            实时物体与人脸识别系统
+          </h1>
+          <p className="text-gray-400 text-sm">
+            使用 TensorFlow.js 进行实时物体检测和人脸识别
+          </p>
         </div>
 
         {/* 主要内容区 - 左右布局 */}
@@ -293,24 +288,24 @@ export default function Home() {
             )}
 
             {/* 人脸识别结果 */}
-            {recognizedPerson && (
-              <Card className="bg-gradient-to-br from-green-500/20 to-blue-500/20 border-green-500/50 p-6">
+            {faceDetections.length > 0 && (
+              <Card className="bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-yellow-500/50 p-6">
                 <h3 className="text-xl font-semibold text-white mb-3">
-                  识别结果
+                  人脸识别结果
                 </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">姓名</span>
-                    <span className="text-2xl font-bold text-white">
-                      {recognizedPerson.name}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">置信度</span>
-                    <span className="text-xl font-semibold text-green-400">
-                      {recognizedPerson.confidence.toFixed(1)}%
-                    </span>
-                  </div>
+                <div className="space-y-3">
+                  {faceDetections.map((face, index) => (
+                    <div key={index} className="bg-gray-700/50 rounded p-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xl font-bold text-white">
+                          {face.name}
+                        </span>
+                        <span className="text-lg font-semibold text-yellow-400">
+                          {face.confidence.toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </Card>
             )}
@@ -411,10 +406,9 @@ export default function Home() {
                 功能说明
               </h3>
               <ul className="space-y-2 text-gray-400 text-sm">
-                <li>• 实时检测画面中的物体（支持 80 种物体类别）</li>
-                <li>• 自动识别已录入的人脸并显示姓名</li>
-                <li>• 管理员可在"人员管理"页面添加人员信息</li>
-                <li>• 在"识别记录"页面查看历史识别记录</li>
+                <li>• 实时检测画面中的物体（绿色框，支持 80 种物体类别）</li>
+                <li>• 自动识别已录入的人脸并显示姓名（黄色框）</li>
+                <li>• 管理员可访问 /backend 页面添加人员信息</li>
                 <li>• 所有处理都在浏览器本地完成，保护隐私</li>
               </ul>
             </Card>
