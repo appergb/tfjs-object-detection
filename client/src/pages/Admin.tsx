@@ -17,7 +17,7 @@ import { trpc } from "@/lib/trpc";
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { getLoginUrl } from "@/const";
-import { extractFaceFromImage } from "@/lib/faceRecognition";
+import { extractFaceFromImage, detectFaces } from "@/lib/faceRecognition";
 import {
   batchExtractFaces,
   validateFaceQuality,
@@ -39,6 +39,11 @@ export default function Admin() {
     score: number;
     issues: string[];
   } | null>(null);
+  const [detectedFace, setDetectedFace] = useState<{
+    bbox: number[];
+    confidence: number;
+  } | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -74,9 +79,74 @@ export default function Admin() {
     setDescription("");
     setImagePreview("");
     setFaceQuality(null);
+    setDetectedFace(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  // 绘制人脸边界框
+  const drawFaceBox = (img: HTMLImageElement, x: number, y: number, size: number) => {
+    if (!canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    // 设置 canvas 尺寸
+    canvas.width = img.width;
+    canvas.height = img.height;
+    
+    // 绘制图片
+    ctx.drawImage(img, 0, 0);
+    
+    // 绘制黄色边框
+    ctx.strokeStyle = "#ffff00";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x, y, size, size);
+    
+    // 绘制标签
+    ctx.fillStyle = "#ffff00";
+    const label = "检测到人脸";
+    ctx.font = "bold 20px Arial";
+    const textWidth = ctx.measureText(label).width;
+    ctx.fillRect(x, y - 35, textWidth + 15, 35);
+    
+    ctx.fillStyle = "#000000";
+    ctx.fillText(label, x + 7, y - 10);
+    
+    // 绘制红色角标
+    const cornerSize = 20;
+    ctx.strokeStyle = "#ff0000";
+    ctx.lineWidth = 3;
+    
+    // 左上角
+    ctx.beginPath();
+    ctx.moveTo(x, y + cornerSize);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + cornerSize, y);
+    ctx.stroke();
+    
+    // 右上角
+    ctx.beginPath();
+    ctx.moveTo(x + size - cornerSize, y);
+    ctx.lineTo(x + size, y);
+    ctx.lineTo(x + size, y + cornerSize);
+    ctx.stroke();
+    
+    // 左下角
+    ctx.beginPath();
+    ctx.moveTo(x, y + size - cornerSize);
+    ctx.lineTo(x, y + size);
+    ctx.lineTo(x + cornerSize, y + size);
+    ctx.stroke();
+    
+    // 右下角
+    ctx.beginPath();
+    ctx.moveTo(x + size - cornerSize, y + size);
+    ctx.lineTo(x + size, y + size);
+    ctx.lineTo(x + size, y + size - cornerSize);
+    ctx.stroke();
   };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,14 +180,72 @@ export default function Admin() {
       const img = new Image();
       img.src = dataUrl;
       img.onload = async () => {
-        toast.info("正在检测人脸质量...");
-        const quality = await validateFaceQuality(img);
-        setFaceQuality(quality);
+        toast.info("正在检测人脸...");
         
-        if (quality.valid) {
-          toast.success(`人脸质量良好 (${quality.score}/100)`);
-        } else {
-          toast.warning(`人脸质量较低 (${quality.score}/100): ${quality.issues.join(", ")}`);
+        // 检测人脸
+        try {
+          const faces = await detectFaces(img);
+          
+          if (faces.length === 0) {
+            toast.error("未检测到人脸,请上传包含清晰人脸的照片");
+            setDetectedFace(null);
+            setFaceQuality(null);
+            return;
+          }
+          
+          if (faces.length > 1) {
+            toast.warning(`检测到${faces.length}张人脸,将使用最大的人脸`);
+          }
+          
+          // 选择最大的人脸
+          const face = faces.sort((a, b) => {
+            const aSize = (Math.max(...a.keypoints.map(p => p.x)) - Math.min(...a.keypoints.map(p => p.x))) *
+                          (Math.max(...a.keypoints.map(p => p.y)) - Math.min(...a.keypoints.map(p => p.y)));
+            const bSize = (Math.max(...b.keypoints.map(p => p.x)) - Math.min(...b.keypoints.map(p => p.x))) *
+                          (Math.max(...b.keypoints.map(p => p.y)) - Math.min(...b.keypoints.map(p => p.y)));
+            return bSize - aSize;
+          })[0];
+          
+          // 计算人脸边界框
+          const keypoints = face.keypoints;
+          const xs = keypoints.map(p => p.x);
+          const ys = keypoints.map(p => p.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          
+          // 计算中心点和正方形边界框
+          const centerX = (minX + maxX) / 2;
+          const centerY = (minY + maxY) / 2;
+          const width = maxX - minX;
+          const height = maxY - minY;
+          const size = Math.max(width, height) * 1.3;
+          const squareX = centerX - size / 2;
+          const squareY = centerY - size / 2;
+          
+          setDetectedFace({
+            bbox: [squareX, squareY, size, size],
+            confidence: 95
+          });
+          
+          // 验证人脸质量
+          const quality = await validateFaceQuality(img);
+          setFaceQuality(quality);
+          
+          if (quality.valid) {
+            toast.success(`✓ 检测到人脸! 质量评分: ${quality.score}/100`);
+          } else {
+            toast.warning(`检测到人脸,但质量较低 (${quality.score}/100): ${quality.issues.join(", ")}`);
+          }
+          
+          // 绘制人脸边界框
+          drawFaceBox(img, squareX, squareY, size);
+        } catch (error) {
+          console.error("人脸检测错误:", error);
+          toast.error("人脸检测失败,请重试");
+          setDetectedFace(null);
+          setFaceQuality(null);
         }
       };
       img.onerror = () => {
@@ -522,11 +650,30 @@ export default function Admin() {
               </div>
               {imagePreview && (
                 <div className="mt-4">
-                  <img
-                    src={imagePreview}
-                    alt="预览"
-                    className="w-full h-48 object-cover rounded"
-                  />
+                  <div className="relative">
+                    {detectedFace ? (
+                      <canvas
+                        ref={canvasRef}
+                        className="w-full h-auto rounded border-2 border-yellow-500"
+                      />
+                    ) : (
+                      <img
+                        src={imagePreview}
+                        alt="预览"
+                        className="w-full h-auto rounded"
+                      />
+                    )}
+                  </div>
+                  {detectedFace && (
+                    <div className="mt-2 p-3 rounded bg-green-500/10 border border-green-500/50">
+                      <p className="text-sm font-semibold text-green-400">
+                        ✓ 检测到人脸
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        位置: ({detectedFace.bbox[0].toFixed(0)}, {detectedFace.bbox[1].toFixed(0)})
+                      </p>
+                    </div>
+                  )}
                   {faceQuality && (
                     <div className={`mt-2 p-3 rounded ${faceQuality.valid ? 'bg-green-500/10 border border-green-500/50' : 'bg-yellow-500/10 border border-yellow-500/50'}`}>
                       <p className={`text-sm font-semibold ${faceQuality.valid ? 'text-green-400' : 'text-yellow-400'}`}>
