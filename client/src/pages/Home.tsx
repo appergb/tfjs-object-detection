@@ -25,9 +25,11 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectingRef = useRef(false);
   const lastDetectionTime = useRef(0);
+  const lastSaveTime = useRef(0);
 
   const { data: persons } = trpc.persons.list.useQuery();
   const { data: stats } = trpc.stats.getOverview.useQuery();
+  const saveDetectionMutation = trpc.detectionLogs.create.useMutation();
 
   useEffect(() => {
     // 加载模型
@@ -186,6 +188,39 @@ export default function Home() {
       }
 
       setFaceDetections(detectedFaces);
+
+      // 保存识别记录(每5秒保存一次,避免频繁保存)
+      if (now - lastSaveTime.current > 5000 && (detectedFaces.length > 0 || predictions.length > 0)) {
+        lastSaveTime.current = now;
+        try {
+          // 获取当前画面的快照
+          const canvas = document.createElement('canvas');
+          const video = videoRef.current;
+          if (video) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              const snapshotData = canvas.toDataURL('image/jpeg', 0.8);
+              
+              // 保存记录
+              saveDetectionMutation.mutate({
+                personId: detectedFaces.length > 0 && detectedFaces[0].name !== "未知" ? persons?.find(p => p.name === detectedFaces[0].name)?.id : undefined,
+                personName: detectedFaces.length > 0 ? detectedFaces[0].name : undefined,
+                confidence: detectedFaces.length > 0 ? Math.round(detectedFaces[0].confidence) : undefined,
+                detectedObjects: JSON.stringify(predictions.map(p => ({
+                  class: p.class,
+                  score: Math.round(p.score * 100)
+                }))),
+                snapshotData: snapshotData
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to save detection log:', error);
+        }
+      }
 
       // 绘制检测框
       drawDetections(predictions, detectedFaces);
