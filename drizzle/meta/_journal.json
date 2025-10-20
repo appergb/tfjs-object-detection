@@ -15,6 +15,13 @@
       "when": 1760861938241,
       "tag": "0001_plain_toad_men",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1760933172053,
+      "tag": "0002_nebulous_wong",
+      "breakpoints": true
     }
   ]
 }

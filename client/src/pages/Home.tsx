@@ -300,22 +300,22 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="container mx-auto px-4 py-6">
         {/* 顶部栏 */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white mb-1">
+        <div className="mb-4 md:mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
             实时物体与人脸识别系统
           </h1>
-          <p className="text-gray-400 text-sm">
+          <p className="text-gray-400 text-xs md:text-sm">
             使用 TensorFlow.js 进行实时物体检测和人脸识别
           </p>
         </div>
 
         {/* 主要内容区 - 左右布局 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           {/* 左侧：识别结果和统计 */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-4 md:space-y-6 order-2 lg:order-1">
             {/* 统计卡片 */}
             {stats && (
-              <Card className="bg-gray-800/50 border-gray-700 p-6">
+              <Card className="bg-gray-800/50 border-gray-700 p-4 md:p-6">
                 <h3 className="text-xl font-semibold text-white mb-4">
                   系统统计
                 </h3>
@@ -344,7 +344,7 @@ export default function Home() {
 
             {/* 人脸识别结果 */}
             {faceDetections.length > 0 && (
-              <Card className="bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-yellow-500/50 p-6">
+              <Card className="bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-yellow-500/50 p-4 md:p-6">
                 <h3 className="text-xl font-semibold text-white mb-3">
                   🎯 人脸识别结果
                 </h3>
@@ -371,7 +371,7 @@ export default function Home() {
             )}
 
             {/* 检测到的物体列表 */}
-            <Card className="bg-gray-800/50 border-gray-700 p-6">
+            <Card className="bg-gray-800/50 border-gray-700 p-4 md:p-6">
               <h3 className="text-xl font-semibold text-white mb-4">
                 检测到的物体
               </h3>
@@ -400,9 +400,9 @@ export default function Home() {
           </div>
 
           {/* 右侧：摄像头和控制 */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 md:space-y-6 order-1 lg:order-2">
             {/* 视频显示区 */}
-            <Card className="bg-gray-800/50 border-gray-700 p-6">
+            <Card className="bg-gray-800/50 border-gray-700 p-3 md:p-6">
               <div className="relative bg-black rounded-lg overflow-hidden">
                 <video
                   ref={videoRef}
@@ -440,19 +440,19 @@ export default function Home() {
               </div>
 
               {/* 控制按钮 */}
-              <div className="flex gap-3 mt-4">
+              <div className="flex gap-2 md:gap-3 mt-3 md:mt-4">
                 {!isDetecting ? (
                   <Button
                     onClick={startDetection}
                     disabled={!model}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-lg py-6"
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-base md:text-lg py-4 md:py-6"
                   >
                     {model ? "开始检测" : "模型加载中..."}
                   </Button>
                 ) : (
                   <Button
                     onClick={stopDetection}
-                    className="flex-1 bg-red-600 hover:bg-red-700 text-lg py-6"
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-base md:text-lg py-4 md:py-6"
                   >
                     停止检测
                   </Button>
@@ -461,7 +461,7 @@ export default function Home() {
             </Card>
 
             {/* 功能说明 */}
-            <Card className="bg-gray-800/50 border-gray-700 p-6">
+            <Card className="bg-gray-800/50 border-gray-700 p-4 md:p-6 hidden md:block">
               <h3 className="text-lg font-semibold text-white mb-3">
                 功能说明
               </h3>

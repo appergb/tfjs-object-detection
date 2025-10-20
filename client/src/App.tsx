@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import Admin from "./pages/Admin";
 import History from "./pages/History";
 import BackendAdmin from "./pages/BackendAdmin";
+import Login from "./pages/Login";
 import { useAuth } from "./_core/hooks/useAuth";
 import { Button } from "./components/ui/button";
 import { APP_TITLE } from "./const";
@@ -107,7 +108,15 @@ function Navigation() {
                 </Button>
               </div>
             ) : (
-              <span className="text-gray-500 text-sm">正在自动登录...</span>
+              <Link href="/login">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                >
+                  登录
+                </Button>
+              </Link>
             )}
           </div>
         </div>
@@ -122,6 +131,7 @@ function Router() {
       <Navigation />
       <Switch>
         <Route path={"/"} component={Home} />
+        <Route path={"/login"} component={Login} />
         <Route path={"/admin"} component={Admin} />
         <Route path={"/history"} component={History} />
         <Route path={"/backend"} component={BackendAdmin} />
