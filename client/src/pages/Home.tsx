@@ -119,21 +119,24 @@ export default function Home() {
       const predictions = await model.detect(videoRef.current);
       setDetections(predictions);
 
-      // 人脸识别
+      // 人脸识别 - 始终执行人脸检测,无论数据库是否有人员数据
       const detectedFaces: Array<{
         name: string;
         confidence: number;
         bbox: number[];
       }> = [];
 
-      if (persons && persons.length > 0) {
-        try {
-          const faces = await detectFaces(videoRef.current);
+      try {
+        const faces = await detectFaces(videoRef.current);
+        
+        for (const face of faces) {
+          const embedding = extractFaceEmbedding(face);
           
-          for (const face of faces) {
-            const embedding = extractFaceEmbedding(face);
+          if (embedding) {
+            let match = null;
             
-            if (embedding) {
+            // 只有当数据库有人员数据时才进行匹配
+            if (persons && persons.length > 0) {
               const knownFaces = persons
                 .filter((p) => p.faceEmbedding)
                 .map((p) => ({
@@ -142,41 +145,44 @@ export default function Home() {
                   embedding: JSON.parse(p.faceEmbedding!),
                 }));
 
-              const match = matchFace(embedding, knownFaces, 0.5); // 降低阈值提高识别率
-              
-              // 计算人脸边界框（正方形）
-              const keypoints = face.keypoints;
-              const xs = keypoints.map(p => p.x);
-              const ys = keypoints.map(p => p.y);
-              const minX = Math.min(...xs);
-              const maxX = Math.max(...xs);
-              const minY = Math.min(...ys);
-              const maxY = Math.max(...ys);
-              
-              // 计算中心点
-              const centerX = (minX + maxX) / 2;
-              const centerY = (minY + maxY) / 2;
-              
-              // 使用较大的边作为正方形边长
-              const width = maxX - minX;
-              const height = maxY - minY;
-              const size = Math.max(width, height) * 1.5; // 放大1.5倍确保完整包含人脸
-              
-              // 计算正方形边界框
-              const squareX = centerX - size / 2;
-              const squareY = centerY - size / 2;
-              
-              detectedFaces.push({
-                name: match ? match.name : "未知",
-                confidence: match ? match.similarity : 0,
-                bbox: [squareX, squareY, size, size],
-              });
+              if (knownFaces.length > 0) {
+                match = matchFace(embedding, knownFaces, 0.5);
+              }
             }
+            
+            // 计算人脸边界框（正方形）
+            const keypoints = face.keypoints;
+            const xs = keypoints.map(p => p.x);
+            const ys = keypoints.map(p => p.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            
+            // 计算中心点
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            
+            // 使用较大的边作为正方形边长
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const size = Math.max(width, height) * 1.5; // 放大1.5倍确保完整包含人脸
+            
+            // 计算正方形边界框
+            const squareX = centerX - size / 2;
+            const squareY = centerY - size / 2;
+            
+            // 无论是否匹配都添加到检测结果中
+            detectedFaces.push({
+              name: match ? match.name : "未知",
+              confidence: match ? match.similarity * 100 : 0,
+              bbox: [squareX, squareY, size, size],
+            });
           }
-        } catch (error) {
-          // 人脸识别失败不影响物体检测
-          console.error("Face recognition error:", error);
         }
+      } catch (error) {
+        // 人脸识别失败不影响物体检测
+        console.error("Face recognition error:", error);
       }
 
       setFaceDetections(detectedFaces);

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-10-20
+
+### Added
+- ✨ 实现本地认证系统,替代OAuth认证
+- ✨ 添加用户名/密码登录功能
+- ✨ 创建独立的登录页面 (Login.tsx)
+- ✨ 人脸检测黄色边框显示
+- ✨ 人脸识别姓名标注(已识别/未知)
+- ✨ 红色角标装饰效果
+- ✨ 默认管理员账户(LBX/198305)
+- 📝 添加详细的部署说明文档
+- 📝 创建代码规范文档 (CODE_STANDARDS.md)
+- 📝 添加项目重构计划 (REFACTOR_PLAN.md)
+
+### Improved
+- 🎨 优化移动端响应式布局
+- 🎨 调整卡片间距和padding
+- 🎨 优化按钮尺寸适配移动设备
+- 🎨 改进标题和文字大小
+- 🎨 移动端内容显示顺序优化
+- 🔧 使用bcryptjs进行密码哈希加密
+- 🔧 实现JWT会话管理
+- 🗃️ 数据库添加password字段
+- 🔒 安全性加固(密码加密、会话管理)
+
+### Fixed
+- 🐛 修复未知人脸不显示的问题
+- 🐛 修复数据库为空时人脸检测不执行的bug
+- 🐛 修复OAuth认证IP白名单限制问题
+- 🐛 修复置信度显示不正确的问题
+
+### Removed
+- 🗑️ 移除OAuth第三方认证依赖
+- 🗑️ 移除外部认证服务器配置
+
+### Breaking Changes
+- ⚠️ 认证系统从 OAuth 变更为本地认证
+- ⚠️ 需要重新配置用户账户
+
 ## [1.1.0] - 2025-10-20
 
 ### Added
