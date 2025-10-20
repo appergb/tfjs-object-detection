@@ -5,6 +5,15 @@ import "@tensorflow/tfjs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { APP_TITLE } from "@/const";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import {
+  initFaceDetector,
+  detectFaces,
+  extractFaceEmbedding,
+  matchFace,
+} from "@/lib/faceRecognition";
+import { toast } from "sonner";
 
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -13,36 +22,52 @@ export default function Home() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [predictions, setPredictions] = useState<DetectedObject[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [recognizedPerson, setRecognizedPerson] = useState<{
+    name: string;
+    confidence: number;
+  } | null>(null);
   const detectingRef = useRef(false);
+  const { isAuthenticated } = useAuth();
+
+  // 获取人员列表用于人脸比对
+  const { data: persons } = trpc.persons.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
 
   // 加载模型
   useEffect(() => {
-    const loadModel = async () => {
+    const loadModels = async () => {
       try {
         setIsLoading(true);
+        // 加载物体检测模型
         const loadedModel = await cocoSsd.load();
         setModel(loadedModel);
+        
+        // 预加载人脸检测模型
+        if (isAuthenticated) {
+          await initFaceDetector();
+        }
+        
         setIsLoading(false);
       } catch (err) {
-        setError("模型加载失败，请刷新页面重试");
+        setErrorMsg("模型加载失败，请刷新页面重试");
         setIsLoading(false);
       }
     };
-    loadModel();
-  }, []);
+    loadModels();
+  }, [isAuthenticated]);
 
   // 启动摄像头
   const startCamera = async () => {
     try {
-      setError("");
+      setErrorMsg("");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: 640, height: 480 },
         audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // 等待视频加载
         await new Promise<void>((resolve) => {
           if (videoRef.current) {
             videoRef.current.onloadedmetadata = () => {
@@ -53,7 +78,7 @@ export default function Home() {
       }
       return true;
     } catch (err) {
-      setError("无法访问摄像头，请确保已授予权限");
+      setErrorMsg("无法访问摄像头，请确保已授予权限");
       return false;
     }
   };
@@ -68,7 +93,7 @@ export default function Home() {
     detectingRef.current = false;
     setIsDetecting(false);
     setPredictions([]);
-    // 清空画布
+    setRecognizedPerson(null);
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext("2d");
       if (ctx) {
@@ -86,16 +111,53 @@ export default function Home() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    // 确保视频已准备好
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      // 设置画布尺寸
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
       try {
-        // 进行检测
+        // 进行物体检测
         const detections = await model.detect(video);
         setPredictions(detections);
+
+        // 如果已登录且有人员数据，进行人脸识别
+        if (isAuthenticated && persons && persons.length > 0) {
+          try {
+            const faces = await detectFaces(video);
+            
+            if (faces.length > 0) {
+              // 提取第一个人脸的特征
+              const faceEmbedding = extractFaceEmbedding(faces[0]);
+              
+              // 准备已知人脸数据
+              const knownFaces = persons
+                .filter((p) => p.faceEmbedding)
+                .map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  embedding: JSON.parse(p.faceEmbedding!),
+                }));
+
+              if (knownFaces.length > 0) {
+                // 进行人脸匹配
+                const match = matchFace(faceEmbedding, knownFaces, 0.5);
+                
+                if (match) {
+                  setRecognizedPerson({
+                    name: match.name,
+                    confidence: match.similarity,
+                  });
+                } else {
+                  setRecognizedPerson(null);
+                }
+              }
+            } else {
+              setRecognizedPerson(null);
+            }
+          } catch (faceErr) {
+            console.error("Face detection error:", faceErr);
+          }
+        }
 
         // 绘制检测框
         const ctx = canvas.getContext("2d");
@@ -107,17 +169,14 @@ export default function Home() {
           detections.forEach((detection) => {
             const [x, y, width, height] = detection.bbox;
             
-            // 绘制边框
             ctx.strokeStyle = "#00ff00";
             ctx.strokeRect(x, y, width, height);
 
-            // 绘制标签背景
-            const text = `${detection.class} ${Math.round(detection.score * 100)}%`;
+            const text = `${detection.class === "person" ? "人" : detection.class} ${Math.round(detection.score * 100)}%`;
             const textWidth = ctx.measureText(text).width;
             ctx.fillStyle = "#00ff00";
             ctx.fillRect(x, y > 25 ? y - 25 : y, textWidth + 10, 25);
 
-            // 绘制标签文字
             ctx.fillStyle = "#000000";
             ctx.fillText(text, x + 5, y > 25 ? y - 7 : y + 18);
           });
@@ -127,7 +186,6 @@ export default function Home() {
       }
     }
 
-    // 继续下一帧检测
     if (detectingRef.current) {
       requestAnimationFrame(detectLoop);
     }
@@ -136,7 +194,7 @@ export default function Home() {
   // 开始检测
   const startDetection = async () => {
     if (!model) {
-      setError("模型尚未加载完成");
+      setErrorMsg("模型尚未加载完成");
       return;
     }
 
@@ -148,7 +206,6 @@ export default function Home() {
     detectingRef.current = true;
     setIsDetecting(true);
     
-    // 启动检测循环
     requestAnimationFrame(detectLoop);
   };
 
@@ -167,41 +224,56 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="container mx-auto px-4 py-8">
-        {/* 标题 */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">
-            {APP_TITLE}
+            实时物体与人脸识别
           </h1>
           <p className="text-gray-400 text-lg">
-            使用 TensorFlow.js 和 COCO-SSD 模型进行实时物体识别
+            使用 TensorFlow.js 进行实时物体检测和人脸识别
           </p>
         </div>
 
-        {/* 主要内容 */}
         <div className="max-w-5xl mx-auto">
           <Card className="bg-gray-800/50 border-gray-700 p-6">
-            {/* 错误提示 */}
-            {error && (
+            {errorMsg && (
               <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400">
-                {error}
+                {errorMsg}
               </div>
             )}
 
-            {/* 加载提示 */}
             {isLoading && (
               <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400">
                 正在加载模型，请稍候...
               </div>
             )}
 
-            {/* 模型加载成功提示 */}
             {model && !isLoading && !isDetecting && (
               <div className="mb-4 p-4 bg-green-500/10 border border-green-500/50 rounded-lg text-green-400">
                 模型加载成功！点击下方按钮开始检测
+                {isAuthenticated && persons && persons.length > 0 && (
+                  <div className="mt-2 text-sm">
+                    已加载 {persons.length} 个人员信息，可进行人脸识别
+                  </div>
+                )}
               </div>
             )}
 
-            {/* 视频和画布容器 */}
+            {/* 识别到的人员提示 */}
+            {recognizedPerson && (
+              <div className="mb-4 p-4 bg-purple-500/10 border border-purple-500/50 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-purple-400 font-semibold text-lg">
+                      识别到: {recognizedPerson.name}
+                    </span>
+                  </div>
+                  <div className="text-purple-300 text-sm">
+                    置信度: {recognizedPerson.confidence}%
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="relative mb-6 bg-black rounded-lg overflow-hidden">
               <video
                 ref={videoRef}
@@ -238,7 +310,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* 控制按钮 */}
             <div className="flex gap-4 justify-center mb-6">
               {!isDetecting ? (
                 <Button
@@ -260,7 +331,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* 检测结果列表 */}
             {predictions.length > 0 && (
               <div className="mt-6">
                 <h3 className="text-xl font-semibold text-white mb-4">
@@ -286,15 +356,21 @@ export default function Home() {
               </div>
             )}
 
-            {/* 说明信息 */}
             <div className="mt-8 p-4 bg-gray-700/30 border border-gray-600 rounded-lg">
-              <h4 className="text-white font-semibold mb-2">使用说明</h4>
+              <h4 className="text-white font-semibold mb-2">功能说明</h4>
               <ul className="text-gray-400 space-y-1 text-sm">
-                <li>• 点击"开始检测"按钮启动摄像头并开始实时物体识别</li>
-                <li>• 系统会自动识别画面中的物体并用绿色框标注</li>
-                <li>• 支持识别 80 种常见物体类别（人、车、动物、家具等）</li>
-                <li>• 可以识别人脸（作为"人"类别进行检测）</li>
-                <li>• 所有处理都在浏览器本地完成，不会上传任何数据</li>
+                <li>• 实时检测画面中的物体（支持 80 种常见物体类别）</li>
+                <li>• 自动识别人脸并用绿色框标注</li>
+                {isAuthenticated ? (
+                  <>
+                    <li>• 已登录用户可使用人脸识别功能</li>
+                    <li>• 管理员可在"人员管理"页面添加人员信息</li>
+                    <li>• 系统会自动比对并识别已录入的人员</li>
+                  </>
+                ) : (
+                  <li>• 登录后可使用人脸识别和记录保存功能</li>
+                )}
+                <li>• 所有处理都在浏览器本地完成，保护隐私</li>
               </ul>
             </div>
           </Card>
