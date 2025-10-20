@@ -68,7 +68,7 @@ export default function History() {
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-4">
                         <div>
-                          {log.personName ? (
+                          {log.personName && log.personName !== "未知" ? (
                             <div>
                               <h3 className="text-xl font-semibold text-white">
                                 识别到: {log.personName}
@@ -79,7 +79,7 @@ export default function History() {
                             </div>
                           ) : (
                             <h3 className="text-xl font-semibold text-gray-400">
-                              未识别到已知人员
+                              识别到: 未知
                             </h3>
                           )}
                         </div>
@@ -103,7 +103,7 @@ export default function History() {
                                 className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm"
                               >
                                 {obj.class === "person" ? "人" : obj.class} (
-                                {Math.round(obj.score * 100)}%)
+                                {obj.score}%)
                               </span>
                             ))}
                           </div>
