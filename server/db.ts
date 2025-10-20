@@ -214,3 +214,63 @@ export async function getDetectionLogsByPerson(personId: number, limit: number =
     .limit(limit);
   return result;
 }
+
+
+// ==================== 统计函数 ====================
+
+/**
+ * 统计人员总数
+ */
+export async function countPersons(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  try {
+    const result = await db.select().from(persons);
+    return result.length;
+  } catch (error) {
+    console.error("[Database] Failed to count persons:", error);
+    return 0;
+  }
+}
+
+/**
+ * 统计检测记录总数
+ */
+export async function countDetectionLogs(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  try {
+    const result = await db.select().from(detectionLogs);
+    return result.length;
+  } catch (error) {
+    console.error("[Database] Failed to count detection logs:", error);
+    return 0;
+  }
+}
+
+/**
+ * 统计今天的检测记录数
+ */
+export async function countTodayDetectionLogs(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const result = await db.select().from(detectionLogs);
+    const todayLogs = result.filter(log => {
+      const logDate = new Date(log.createdAt);
+      return logDate >= today;
+    });
+    
+    return todayLogs.length;
+  } catch (error) {
+    console.error("[Database] Failed to count today's logs:", error);
+    return 0;
+  }
+}
+

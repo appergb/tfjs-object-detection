@@ -117,6 +117,38 @@ export const appRouter = router({
       }),
   }),
 
+  // 统计 API
+  stats: router({
+    // 获取总体统计
+    getOverview: protectedProcedure.query(async () => {
+      const totalPersons = await db.countPersons();
+      const totalLogs = await db.countDetectionLogs();
+      const todayLogs = await db.countTodayDetectionLogs();
+      
+      return {
+        totalPersons,
+        totalLogs,
+        todayLogs,
+        lastUpdate: new Date().toISOString(),
+      };
+    }),
+
+    // 获取使用统计（最近7天）
+    getUsageStats: protectedProcedure.query(async () => {
+      const logs = await db.getRecentDetectionLogs(100);
+      
+      const dailyStats = new Map<string, number>();
+      logs.forEach((log) => {
+        const date = new Date(log.createdAt).toISOString().split('T')[0];
+        dailyStats.set(date, (dailyStats.get(date) || 0) + 1);
+      });
+      
+      return Array.from(dailyStats.entries())
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }),
+  }),
+
   // 检测记录 API
   detectionLogs: router({
     // 获取最近的检测记录
