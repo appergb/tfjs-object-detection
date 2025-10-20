@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as cocoSsd from "@tensorflow-models/coco-ssd";
 import "@tensorflow/tfjs";
 import { toast } from "sonner";
-import { detectFaces, matchFace, extractFaceEmbedding } from "@/lib/faceRecognition";
+import { detectFaces, extractFaceEmbedding, matchFace } from "@/lib/faceRecognition";
 import { trpc } from "@/lib/trpc";
 
 export default function Home() {
@@ -24,6 +24,7 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectingRef = useRef(false);
+  const lastDetectionTime = useRef(0);
 
   const { data: persons } = trpc.persons.list.useQuery();
   const { data: stats } = trpc.stats.getOverview.useQuery();
@@ -32,7 +33,7 @@ export default function Home() {
     // 加载模型
     const loadModel = async () => {
       try {
-        toast.info("正在加载模型，请稍候...");
+        toast.info("正在加载物体检测模型...");
         const loadedModel = await cocoSsd.load();
         setModel(loadedModel);
         toast.success("模型加载完成！");
@@ -48,7 +49,11 @@ export default function Home() {
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user"
+        },
       });
 
       if (videoRef.current) {
@@ -80,7 +85,7 @@ export default function Home() {
     if (!videoRef.current || !videoRef.current.srcObject) {
       await startCamera();
       // 等待视频准备好
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     setIsDetecting(true);
@@ -102,9 +107,14 @@ export default function Home() {
     }
 
     try {
-      // 每隔几帧才进行一次检测，提高性能
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      const now = Date.now();
+      // 控制帧率，每300ms检测一次
+      if (now - lastDetectionTime.current < 300) {
+        requestAnimationFrame(detectLoop);
+        return;
+      }
+      lastDetectionTime.current = now;
+
       // 物体检测
       const predictions = await model.detect(videoRef.current);
       setDetections(predictions);
@@ -121,7 +131,7 @@ export default function Home() {
           const faces = await detectFaces(videoRef.current);
           
           for (const face of faces) {
-            const embedding = await extractFaceEmbedding(face);
+            const embedding = extractFaceEmbedding(face);
             
             if (embedding) {
               const knownFaces = persons
@@ -132,24 +142,35 @@ export default function Home() {
                   embedding: JSON.parse(p.faceEmbedding!),
                 }));
 
-              const match = matchFace(embedding, knownFaces);
+              const match = matchFace(embedding, knownFaces, 0.5); // 降低阈值提高识别率
               
-              if (match) {
-                // 计算人脸边界框
-                const keypoints = face.keypoints;
-                const xs = keypoints.map(p => p.x);
-                const ys = keypoints.map(p => p.y);
-                const minX = Math.min(...xs);
-                const maxX = Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
-                
-                detectedFaces.push({
-                  name: match.name,
-                  confidence: match.similarity,
-                  bbox: [minX, minY, maxX - minX, maxY - minY],
-                });
-              }
+              // 计算人脸边界框（正方形）
+              const keypoints = face.keypoints;
+              const xs = keypoints.map(p => p.x);
+              const ys = keypoints.map(p => p.y);
+              const minX = Math.min(...xs);
+              const maxX = Math.max(...xs);
+              const minY = Math.min(...ys);
+              const maxY = Math.max(...ys);
+              
+              // 计算中心点
+              const centerX = (minX + maxX) / 2;
+              const centerY = (minY + maxY) / 2;
+              
+              // 使用较大的边作为正方形边长
+              const width = maxX - minX;
+              const height = maxY - minY;
+              const size = Math.max(width, height) * 1.5; // 放大1.5倍确保完整包含人脸
+              
+              // 计算正方形边界框
+              const squareX = centerX - size / 2;
+              const squareY = centerY - size / 2;
+              
+              detectedFaces.push({
+                name: match ? match.name : "未知",
+                confidence: match ? match.similarity : 0,
+                bbox: [squareX, squareY, size, size],
+              });
             }
           }
         } catch (error) {
@@ -167,8 +188,7 @@ export default function Home() {
       requestAnimationFrame(detectLoop);
     } catch (error) {
       console.error("Detection error:", error);
-      detectingRef.current = false;
-      setIsDetecting(false);
+      requestAnimationFrame(detectLoop); // 继续尝试
     }
   };
 
@@ -202,7 +222,7 @@ export default function Home() {
 
       // 绘制边界框
       ctx.strokeStyle = "#00ff00";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.strokeRect(x, y, width, height);
 
       // 绘制标签背景
@@ -210,27 +230,6 @@ export default function Home() {
       const label = `${prediction.class === "person" ? "人" : prediction.class} ${(
         prediction.score * 100
       ).toFixed(0)}%`;
-      const textWidth = ctx.measureText(label).width;
-      ctx.fillRect(x, y - 25, textWidth + 10, 25);
-
-      // 绘制标签文字
-      ctx.fillStyle = "#000000";
-      ctx.font = "16px Arial";
-      ctx.fillText(label, x + 5, y - 7);
-    });
-
-    // 绘制人脸检测框（黄色）
-    faces.forEach((face) => {
-      const [x, y, width, height] = face.bbox;
-
-      // 绘制边界框
-      ctx.strokeStyle = "#ffff00";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, width, height);
-
-      // 绘制标签背景
-      ctx.fillStyle = "#ffff00";
-      const label = `${face.name} ${face.confidence.toFixed(0)}%`;
       ctx.font = "bold 18px Arial";
       const textWidth = ctx.measureText(label).width;
       ctx.fillRect(x, y - 30, textWidth + 10, 30);
@@ -238,6 +237,62 @@ export default function Home() {
       // 绘制标签文字
       ctx.fillStyle = "#000000";
       ctx.fillText(label, x + 5, y - 8);
+    });
+
+    // 绘制人脸检测框（黄色正方形）
+    faces.forEach((face) => {
+      const [x, y, size] = face.bbox;
+
+      // 绘制正方形边界框
+      ctx.strokeStyle = "#ffff00";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, y, size, size);
+
+      // 绘制标签背景
+      ctx.fillStyle = "#ffff00";
+      const label = face.name !== "未知" 
+        ? `${face.name} ${face.confidence.toFixed(0)}%`
+        : "未知人脸";
+      ctx.font = "bold 20px Arial";
+      const textWidth = ctx.measureText(label).width;
+      ctx.fillRect(x, y - 35, textWidth + 15, 35);
+
+      // 绘制标签文字
+      ctx.fillStyle = "#000000";
+      ctx.fillText(label, x + 7, y - 10);
+      
+      // 在正方形四个角添加装饰
+      const cornerSize = 20;
+      ctx.strokeStyle = "#ff0000";
+      ctx.lineWidth = 3;
+      
+      // 左上角
+      ctx.beginPath();
+      ctx.moveTo(x, y + cornerSize);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + cornerSize, y);
+      ctx.stroke();
+      
+      // 右上角
+      ctx.beginPath();
+      ctx.moveTo(x + size - cornerSize, y);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x + size, y + cornerSize);
+      ctx.stroke();
+      
+      // 左下角
+      ctx.beginPath();
+      ctx.moveTo(x, y + size - cornerSize);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x + cornerSize, y + size);
+      ctx.stroke();
+      
+      // 右下角
+      ctx.beginPath();
+      ctx.moveTo(x + size - cornerSize, y + size);
+      ctx.lineTo(x + size, y + size);
+      ctx.lineTo(x + size, y + size - cornerSize);
+      ctx.stroke();
     });
   };
 
@@ -291,19 +346,24 @@ export default function Home() {
             {faceDetections.length > 0 && (
               <Card className="bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-yellow-500/50 p-6">
                 <h3 className="text-xl font-semibold text-white mb-3">
-                  人脸识别结果
+                  🎯 人脸识别结果
                 </h3>
                 <div className="space-y-3">
                   {faceDetections.map((face, index) => (
-                    <div key={index} className="bg-gray-700/50 rounded p-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xl font-bold text-white">
+                    <div key={index} className="bg-gray-700/50 rounded-lg p-4 border-l-4 border-yellow-400">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-2xl font-bold text-white">
                           {face.name}
                         </span>
-                        <span className="text-lg font-semibold text-yellow-400">
-                          {face.confidence.toFixed(0)}%
-                        </span>
+                        {face.name !== "未知" && (
+                          <span className="text-lg font-semibold text-yellow-400">
+                            {face.confidence.toFixed(0)}%
+                          </span>
+                        )}
                       </div>
+                      <p className="text-gray-400 text-sm">
+                        {face.name !== "未知" ? "已识别身份" : "未在数据库中"}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -407,8 +467,9 @@ export default function Home() {
               </h3>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li>• 实时检测画面中的物体（绿色框，支持 80 种物体类别）</li>
-                <li>• 自动识别已录入的人脸并显示姓名（黄色框）</li>
-                <li>• 管理员可访问 /backend 页面添加人员信息</li>
+                <li>• 自动识别已录入的人脸并显示姓名（黄色正方形框）</li>
+                <li>• AI 智能比对后台数据库，精准识别来者身份</li>
+                <li>• 管理员可访问后台页面添加人员信息</li>
                 <li>• 所有处理都在浏览器本地完成，保护隐私</li>
               </ul>
             </Card>
