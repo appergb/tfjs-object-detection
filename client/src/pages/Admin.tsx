@@ -81,26 +81,57 @@ export default function Admin() {
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const dataUrl = reader.result as string;
-        setImagePreview(dataUrl);
+    if (!file) return;
 
-        // 验证人脸质量
-        const img = new Image();
-        img.src = dataUrl;
-        img.onload = async () => {
-          const quality = await validateFaceQuality(img);
-          setFaceQuality(quality);
-          
-          if (!quality.valid) {
-            toast.warning(`人脸质量评分: ${quality.score}/100`);
-          }
-        };
-      };
-      reader.readAsDataURL(file);
+    // 检查文件大小(限制5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("图片文件过大,请选择小于5MB的图片");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
     }
+
+    // 检查文件类型
+    if (!file.type.startsWith("image/")) {
+      toast.error("请选择图片文件");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const dataUrl = reader.result as string;
+      setImagePreview(dataUrl);
+
+      // 验证人脸质量
+      const img = new Image();
+      img.src = dataUrl;
+      img.onload = async () => {
+        toast.info("正在检测人脸质量...");
+        const quality = await validateFaceQuality(img);
+        setFaceQuality(quality);
+        
+        if (quality.valid) {
+          toast.success(`人脸质量良好 (${quality.score}/100)`);
+        } else {
+          toast.warning(`人脸质量较低 (${quality.score}/100): ${quality.issues.join(", ")}`);
+        }
+      };
+      img.onerror = () => {
+        toast.error("图片加载失败,请选择其他图片");
+        setImagePreview("");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      };
+    };
+    reader.onerror = () => {
+      toast.error("文件读取失败,请重试");
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async () => {
@@ -117,24 +148,34 @@ export default function Admin() {
     }
 
     try {
-      toast.info("正在提取人脸特征...");
+      toast.info("正在加载人脸检测模型...");
+      
       const img = new Image();
       img.src = imagePreview;
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         img.onload = resolve;
+        img.onerror = () => reject(new Error("图片加载失败"));
       });
 
+      toast.info("正在提取人脸特征...");
       const faceEmbedding = await extractFaceFromImage(img);
       
       if (!faceEmbedding) {
-        toast.error("未检测到人脸，请上传清晰的人脸照片");
+        toast.error(
+          "未检测到人脸，请确保:\n" +
+          "1. 照片中有清晰的人脸\n" +
+          "2. 人脸正对镜头\n" +
+          "3. 光线充足\n" +
+          "4. 人脸占图牃30%以上"
+        );
         return;
       }
 
       // 计算特征质量
       const embeddingQuality = calculateEmbeddingQuality(faceEmbedding);
-      toast.info(`特征质量: ${embeddingQuality.toFixed(1)}/100`);
+      toast.success(`人脸特征提取成功! 特征质量: ${embeddingQuality.toFixed(1)}/100`);
 
+      toast.info("正在保存...");
       createMutation.mutate({
         name,
         description,
@@ -142,7 +183,12 @@ export default function Admin() {
         faceEmbedding: JSON.stringify(faceEmbedding),
       });
     } catch (error) {
-      toast.error("人脸特征提取失败，请重试");
+      console.error("人脸特征提取错误:", error);
+      if (error instanceof Error) {
+        toast.error(`错误: ${error.message}`);
+      } else {
+        toast.error("人脸特征提取失败，请重试");
+      }
     }
   };
 

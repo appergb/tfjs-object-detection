@@ -14,7 +14,7 @@ export async function initFaceDetector() {
     const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
     const detectorConfig: faceLandmarksDetection.MediaPipeFaceMeshMediaPipeModelConfig = {
       runtime: "mediapipe",
-      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh",
+      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619",
       maxFaces: 10, // 增加最大检测人脸数
       refineLandmarks: true, // 启用精细化关键点检测
     };
