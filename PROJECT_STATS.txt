@@ -1,0 +1,27 @@
+TensorFlow.js 物体识别与人脸识别应用 - 项目统计
+=================================================
+
+部署信息
+--------
+部署时间: 2025-10-20
+项目路径: /home/ubuntu/tfjs-object-detection
+GitHub: https://github.com/appergb/tfjs-object-detection
+
+代码统计
+--------
+TypeScript 文件数:
+106
+
+总代码行数:
+  37055 total
+
+依赖包数量:
+98
+
+构建产物大小:
+3.0M	dist/
+
+数据库表:
+- users (用户表)
+- persons (人员表)
+- detectionLogs (检测日志表)
